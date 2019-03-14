@@ -1,0 +1,201 @@
+---
+- hosts: local
+  connection: local
+#  gather_facts: false
+  vars:
+    subnet_id: subnet-c52ec68e
+    region: us-west-2
+  tasks:
+#Instalando o pip e o boto
+  - name: Instalando o Pip Debian / Ubuntu
+    apt: 
+      name: python-pip
+    when: ansible_os_family == "Debian" 
+    tags: depends,local
+  - name: Instalando o Pip Centos / RHE
+    yum:    
+      name: python2-pip
+    when: ansible_os_family == "RedHat"
+    tags: depends,local 
+  - name: Instalando o Boto
+    pip:
+      name:
+        - boto==2.49.0
+        - boto3==1.9.82
+    tags: depends
+
+#Instalando dependencias para efetuar o deploy local se o sistema operacional for Debian ou Ubuntu
+  - name: Instalando depemdemcias para deploy local no Debian / Ubuntu
+    apt: 
+      name: 
+        - git
+        - curl
+        - mongodb-clients 
+        - mongo-tools
+    when: ansible_os_family == "Debian" 
+    tags: local 
+ 
+#Instalando dependencias para efetuar o deploy local se o sistema operacional for Centos ou RedHat
+  - name: Instalando dependencias para deploy local no Centos / RHE
+    yum:    
+      name: 
+        - git
+        - curl
+        - libmongo-client
+        - libmongo-client-devel
+    when: ansible_os_family == "RedHat"
+    tags: local  
+
+#Instalando dependencia do modulo docker_container    
+  - name: Instalando os pacotes do pip
+    pip:
+      name:
+        - docker-py
+    tags: local 
+
+#Instalação simplificada do docker CE
+  - name: Instalando o Docker
+    shell: curl fsSl https://get.docker.com/ | bash
+    tags: local 
+  - name: Inciando o Docker
+    service:
+      name: docker
+      state: started
+    tags: local 
+
+#Baixando magem do Mongo e inicando o container    
+  - name: Baixando e inciando container do MongoDB aguarde 15 segundos para garantir que o sock esteja em execução
+    docker_container:
+      name: mongodb
+      hostname: mongodb
+      image: mongo
+      ports:
+        - "27017:27017"
+        - "127.0.0.1:27017:27017/tcp"
+    tags: local 
+
+#Aguardando o socket do mongo ativar
+  - pause:
+      seconds: 15    
+    tags: local
+
+#Build da aplicação
+  - name: Efetuando o build da iamgem do Dockerfile com a aplicação Cobrar-me
+    docker_image:
+      path: ./
+      name: cobrarme
+      push: no
+    tags: local 
+
+#Criando a collection do banco do MongoDB
+  - name: Preparando o banco de dados MongoDB
+    shell: echo "printjson(db.createCollection('usuarios'))" | mongo appdata
+    tags: local 
+
+#Linkando o container da aplicação ao banco de dados    
+  - name: Iniciando o container com a aplicação e linkando o mesmo com o banco de dados
+    docker_container:
+      name: cobrarme
+      hostname: cobrarme
+      image: cobrarme
+      links:
+        - "mongodb:mongodb"
+      ports:
+        - "80:80"
+        - "127.0.0.1:80:80/tcp"
+    tags: local 
+
+#Efetuando o payload na aplicação    
+  - name: Aplicando o playload de teste da aplicação.
+    shell: 'curl --header "Content-Type: application/json" --request POST -d@payload.json http:/localhost/api/users/cadastra'
+    tags: local
+  - debug:
+          msg: "Show agora teste com um 'curl http:/localhost/api/users/lista' para garantir que a aplicação deu certo ou acesse o pelo navegador da sua maquina o http:/localhost/api/users/lista"
+    tags: local
+
+#-----------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------------------------------
+
+# Criando maquina na AWS
+# Criando uma chave privada em sua conta da aws
+  - name: Criando a chave privada para acessar a instancia
+    ec2_key:
+      name: aws-pagarme-key
+      region: "{{ region }}"
+    register: ec2_key_result
+    tags: aws
+
+# Salvando a chave privada em sua maquina no local em que esta a playbook cuidado pois ela só é gerada uma vez    
+  - name: Salvando a chave privada em sua maquina, aqui mesmo!!!
+    copy: content="{{ ec2_key_result.key.private_key }}" dest="./aws-pagarme-key.pem" mode=0600
+    when: ec2_key_result.changed
+    tags: aws
+
+# Criando o security group para ser associado a instancia e liberando a porta 80 a mesma    
+  - name: Criando security group para liberar a porta 80
+    ec2_group:
+      name: aws-pagarme-group
+      description: libera a pora 80
+      region: "{{ region }}"
+      rules:
+        - proto: tcp
+          ports:
+          - 80
+          cidr_ip: 0.0.0.0/0
+          rule_desc: libera o http
+        - proto: tcp
+          ports:
+          - 22
+          cidr_ip: 0.0.0.0/0
+          rule_desc: libera o ssh
+    tags: aws
+
+# Criando a instancia com t2 micro com Ubuntu    
+  - name: Criando uma instancia t2 micro com ubuntu e instalando docker git e efetuando o deploy da aplicação ;)
+    ec2:
+      region: "{{ region }}"
+      key_name: aws-pagarme-key
+      instance_type: t2.micro
+      image: ami-0bbe6b35405ecebdb
+      count: 1
+      user_data: |
+        #!/bin/bash
+        apt-get install curl git mongodb-clients mongo-tools -y
+        curl fsSl https://get.docker.com/ | bash ; systemcl start docker
+        cd /opt/ ; git clone --branch Prod https://github.com/andpupilo0182/MongApp.git
+        cd /opt/MongApp ; docker build -t mongapp .
+        docker pull mongo
+        docker run -dti --name mongodb --hostname mongodb -p 127.0.0.1:27017:27017 mongo
+        mongo appdata --eval "printjson(db.createCollection('usuarios'))"
+        docker run -dti --name mongapp --hostname mongapp -p 0.0.0.0:80:80 --link mongodb:mongodb mongapp
+      wait: yes
+      vpc_subnet_id: "{{ subnet_id }}"
+      assign_public_ip: yes
+      group: aws-pagarme-group
+    register: ec2    
+    tags: aws
+
+  - ec2_remote_facts:
+      region: us-west-2
+    register: ec2_facts
+    tags: aws  
+
+# Aguarando o Cloud Init e User-data configurar a instancia com docker e depoendenciar necessarias    
+  - name: Esperando 10 minutos para o Cloud Init configurar sua instancia.
+    pause:
+      minutes: 10
+    tags: aws
+
+# Efetuando a carga na aplicação    
+  - name: Aplicando o playload de teste da aplicação.
+    shell: 'curl --header "Content-Type: application/json" --request POST -d@payload.json http:/{{ item.1 }}/api/users/cadastra'
+    tags: local  
+
+# Exibindo o IP Publico da instancia criada    
+  - name: Coletando fatos da instancia
+    debug:
+      msg: "Showww aguarde algum tempo para que o CloudInit clonclua a instalação dos containers em sua instancia e faça um curl http://{{ item.1 }}/api/users/lista"
+    with_together:
+      - "{{ ec2_facts.instances|selectattr('state', 'equalto', 'running')|map(attribute='tags.Name')|list }}"
+      - "{{ ec2_facts.instances|selectattr('state', 'equalto', 'running')|map(attribute='public_ip_address')|list }}"
+    tags: aws
