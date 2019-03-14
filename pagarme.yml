@@ -1,5 +1,5 @@
 ---
-- hosts: local
+- hosts: localhost
   connection: local
 #  gather_facts: false
   vars:
@@ -162,7 +162,7 @@
         #!/bin/bash
         apt-get install curl git mongodb-clients mongo-tools -y
         curl fsSl https://get.docker.com/ | bash ; systemcl start docker
-        cd /opt/ ; git clone --branch Prod https://github.com/andpupilo0182/MongApp.git
+        cd /opt/ ; git clone --branch Prod https://github.com/andpupilo0182/Cobrar-me.git
         cd /opt/MongApp ; docker build -t mongapp .
         docker pull mongo
         docker run -dti --name mongodb --hostname mongodb -p 127.0.0.1:27017:27017 mongo
