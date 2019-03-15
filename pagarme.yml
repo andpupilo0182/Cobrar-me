@@ -3,8 +3,8 @@
   connection: local
 #  gather_facts: false
   vars:
-    subnet_id: subnet-c52ec68e
-    region: us-west-2
+    subnet_id: ALTERARRRR
+    region: ALTERARRRR
   tasks:
 #Instalando o pip e o boto
   - name: Instalando o Pip Debian / Ubuntu
@@ -22,7 +22,20 @@
       name:
         - boto==2.49.0
         - boto3==1.9.82
+        - jinja2==2.10
     tags: depends
+
+#Adcionando repositorio do Mongo no Centos
+  - name: dcionando repositorio do Mongo no Centos
+    yum_repository:
+      name: mongodb-org-4.0
+      description: Repo MongoDB
+      baseurl: https://repo.mongodb.org/yum/redhat/$releasever/mongodb-org/4.0/x86_64/
+      gpgcheck: yes
+      enabled: yes
+      gpgkey: https://www.mongodb.org/static/pgp/server-4.0.asc
+    when: ansible_os_family == "RedHat"
+    tags: local
 
 #Instalando dependencias para efetuar o deploy local se o sistema operacional for Debian ou Ubuntu
   - name: Instalando depemdemcias para deploy local no Debian / Ubuntu
@@ -43,6 +56,7 @@
         - curl
         - libmongo-client
         - libmongo-client-devel
+        - mongodb-org-shell-4.0.6
     when: ansible_os_family == "RedHat"
     tags: local  
 
@@ -105,9 +119,15 @@
         - "127.0.0.1:80:80/tcp"
     tags: local 
 
+#Aguardando os container iniciarem
+  - pause:
+      seconds: 15    
+    tags: local
+
+
 #Efetuando o payload na aplicação    
   - name: Aplicando o playload de teste da aplicação.
-    shell: 'curl --header "Content-Type: application/json" --request POST -d@payload.json http:/localhost/api/users/cadastra'
+    shell: "curl -H 'Content-Type: application/json' --request POST -d@payload.json http://127.0.0.1/api/users/cadastra"
     tags: local
   - debug:
           msg: "Show agora teste com um 'curl http:/localhost/api/users/lista' para garantir que a aplicação deu certo ou acesse o pelo navegador da sua maquina o http:/localhost/api/users/lista"
@@ -162,12 +182,12 @@
         #!/bin/bash
         apt-get install curl git mongodb-clients mongo-tools -y
         curl fsSl https://get.docker.com/ | bash ; systemcl start docker
-        cd /opt/ ; git clone --branch Prod https://github.com/andpupilo0182/Cobrar-me.git
-        cd /opt/MongApp ; docker build -t mongapp .
+        cd /opt/ ; git clone  https://github.com/andpupilo0182/Cobrar-me.git
+        cd /opt/Cobrar-me ; docker build -t cobrame .
         docker pull mongo
         docker run -dti --name mongodb --hostname mongodb -p 127.0.0.1:27017:27017 mongo
         mongo appdata --eval "printjson(db.createCollection('usuarios'))"
-        docker run -dti --name mongapp --hostname mongapp -p 0.0.0.0:80:80 --link mongodb:mongodb mongapp
+        docker run -dti --name cobrame --hostname cobrame -p 0.0.0.0:80:80 --link mongodb:mongodb cobrame
       wait: yes
       vpc_subnet_id: "{{ subnet_id }}"
       assign_public_ip: yes
@@ -176,7 +196,7 @@
     tags: aws
 
   - ec2_remote_facts:
-      region: us-west-2
+      region: "{{ region }}"
     register: ec2_facts
     tags: aws  
 
@@ -186,15 +206,12 @@
       minutes: 10
     tags: aws
 
-# Efetuando a carga na aplicação    
-  - name: Aplicando o playload de teste da aplicação.
-    shell: 'curl --header "Content-Type: application/json" --request POST -d@payload.json http:/{{ item.1 }}/api/users/cadastra'
-    tags: local  
-
 # Exibindo o IP Publico da instancia criada    
   - name: Coletando fatos da instancia
     debug:
-      msg: "Showww aguarde algum tempo para que o CloudInit clonclua a instalação dos containers em sua instancia e faça um curl http://{{ item.1 }}/api/users/lista"
+      msg: 
+      - "Showww aguarde algum tempo para que o CloudInit clonclua a instalação dos containers em sua instancia e faça um curl http://{{ item.1 }}/api/users/lista"
+      - "Para efetuar uma carga na aplicação use o comando curl -H 'Content-Type:application/json' --request POST -d@payload.json http:/{{ item.1 }}/api/users/cadastra"
     with_together:
       - "{{ ec2_facts.instances|selectattr('state', 'equalto', 'running')|map(attribute='tags.Name')|list }}"
       - "{{ ec2_facts.instances|selectattr('state', 'equalto', 'running')|map(attribute='public_ip_address')|list }}"
