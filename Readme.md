@@ -1,6 +1,6 @@
 # Deploy Cobrar-me
 
-<span style="color:red"> ANDRE </span>
+<font color="green"> Some green text </font>
 
 ![Deploy Centos](images/logo.png)
 
