@@ -1,6 +1,6 @@
 # Deploy Cobrar-me
 
-<font color="green"> Some green text </font>
+- ANDER
 
 ![Deploy Centos](images/logo.png)
 
