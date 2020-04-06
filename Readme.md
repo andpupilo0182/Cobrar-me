@@ -1,6 +1,5 @@
 # Deploy Cobrar-me
 
-- ANDER
 
 ![Deploy Centos](images/logo.png)
 
